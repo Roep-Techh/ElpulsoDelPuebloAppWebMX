@@ -1,0 +1,27 @@
+{
+  "name": "el-pulso-del-pueblo",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "El Pulso del Pueblo - Todo lo que pasa cerca de ti",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --port 4173",
+    "smoke": "node scripts/smoke.mjs",
+    "icons": "node scripts/gen-icons.mjs",
+    "db:reset": "echo Revisa supabase/schema.sql en el SQL Editor de Supabase"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.4",
+    "leaflet": "^1.9.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.2"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.2",
+    "jsdom": "^30.1.3",
+    "vite": "^5.4.8"
+  }
+}
