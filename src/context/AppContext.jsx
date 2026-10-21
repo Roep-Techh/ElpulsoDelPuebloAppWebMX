@@ -12,6 +12,30 @@ export function AppProvider({ children }) {
   const [panelAbierto, setPanelAbierto] = useState(false)
   const [quota, setQuota] = useState(null)
   const [visto, setVisto] = useState(() => Number(localStorage.getItem('elpulso.visto') || 0))
+  const [comunidades, setComunidades] = useState([])
+  const [comunidad, setComunidad] = useState(() => localStorage.getItem('elpulso.comunidad') || '')
+
+  /* ---------- pueblos ---------- */
+  const cargarComunidades = useCallback(async () => {
+    const cs = await api.comunidades.listar()
+    setComunidades(cs.filter((c) => c.activa))
+    return cs
+  }, [])
+
+  useEffect(() => { cargarComunidades() }, [cargarComunidades])
+
+  // si no eligió pueblo, se queda con el primero (el de la app)
+  const comunidadActual = useMemo(() => {
+    if (comunidad) return comunidad
+    const primera = comunidades[0]
+    return primera ? primera.id : ''
+  }, [comunidad, comunidades])
+
+  const elegirComunidad = useCallback((id) => {
+    setComunidad(id || '')
+    if (id) localStorage.setItem('elpulso.comunidad', id)
+    else localStorage.removeItem('elpulso.comunidad')
+  }, [])
 
   /* ---------- sesión ---------- */
   useEffect(() => {
@@ -49,7 +73,7 @@ export function AppProvider({ children }) {
   const refrescarNotis = useCallback(async () => {
     if (!user) return setNotis([])
     const [avisos, mias] = await Promise.all([
-      api.posts.list({ tipo: 'aviso', limit: 20 }),
+      api.posts.list({ tipo: 'aviso', limit: 20, comunidadId: comunidadActual }),
       api.posts.list({ authorId: user.id, limit: 20 })
     ])
     const items = []
@@ -100,7 +124,7 @@ export function AppProvider({ children }) {
         )
     } catch {}
     setNotis(items.sort((a, b) => new Date(b.creado_en) - new Date(a.creado_en)).slice(0, 12))
-  }, [user, visto])
+  }, [user, visto, comunidadActual])
 
   useEffect(() => {
     refrescarNotis()
@@ -166,9 +190,13 @@ export function AppProvider({ children }) {
       setPanelAbierto,
       marcarLeidas,
       refrescarNotis,
+      comunidades,
+      comunidad: comunidadActual,
+      elegirComunidad,
+      cargarComunidades,
       modo: api.MODO
     }),
-    [user, cargando, toast, mostrarToast, entrar, registrar, salir, actualizarPerfil, quota, refrescarCupo, notis, panelAbierto, marcarLeidas, refrescarNotis]
+    [user, cargando, toast, mostrarToast, entrar, registrar, salir, actualizarPerfil, quota, refrescarCupo, notis, panelAbierto, marcarLeidas, refrescarNotis, comunidades, comunidadActual, elegirComunidad, cargarComunidades]
   )
 
   return <Ctx.Provider value={valor}>{children}</Ctx.Provider>

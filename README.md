@@ -42,6 +42,27 @@ La presidencia **no modera**: solo publica avisos oficiales. Toda la revisión l
 
 ---
 
+## 🏘️ Pueblos (comunidades): de dónde es cada quien
+
+La app está pensada para **un pueblo por ahora — San Simón Atzitzintla — y para crecer** cuando otros
+pueblos se interesen:
+
+- **Al crear una cuenta se pregunta "¿De dónde eres?"** (Login → Crear cuenta) y esa respuesta queda en el
+  perfil. En el **modo libre** (sin cuenta) también se pregunta antes de publicar.
+- **Cada publicación, negocio y aviso lleva su pueblo**: hereda el del autor (o el que eligió el invitado).
+  En las tarjetas se ve la etiqueta `📍 San Simón Atzitzintla`.
+- **Hay un filtro de pueblo en el encabezado** (Selector "📍 Pueblo"). Con un solo pueblo solo aparece el
+  tuyo; con varios, cada quien ve lo de su comunidad. La elección se guarda en el navegador.
+- **Tú agregas más pueblos desde el panel**: **Cuenta → 🛡️ Panel de Roep Tech → 🏘️ Pueblos de la app**.
+  Cuando lleguen, digamos, 10 vecinos de otro pueblo, lo agregas ahí y ya aparece en el filtro y en el
+  registro de cuentas. También puedes **desactivar** un pueblo sin borrar su contenido.
+- En el panel de **cuentas** puedes crear cuentas diciendo de dónde es cada una, y **mover una cuenta a
+  otro pueblo** con el selector 📍 de cada fila.
+- **Nadie más puede agregar pueblos**: en Supabase lo bloquea la política RLS de la tabla `comunidades`;
+  en el modo demo, el permiso `admin`.
+
+---
+
 ## 🌤️ Lectura pública y modo libre (sin cuenta)
 
 - **Ver es libre**: Inicio, Negocios, Empleos, Avisos, Mapa y cada publicación se ven sin iniciar sesión.
@@ -91,13 +112,15 @@ Reglas aplicadas a **cualquiera** que publique avisos (Presidencia, Comisiones, 
    Elige la región más cercana (ej. *South America (São Paulo)* o *East US*) y guarda la **contraseña de la base**.
 2. Abre **SQL Editor** → **New query** → pega **todo** el contenido de **`supabase/schema.sql`** → **Run**.
    Verás algo como *“Success. No rows returned”*: eso es todo bien. Se crean:
-   tablas, permisos, el límite diario, el modo libre, el buzón, el filtro de avisos y el bucket de fotos/videos.
+   tablas, permisos, el límite diario, el modo libre, el buzón, el filtro de avisos, el bucket de fotos/videos
+   y el pueblo inicial **San Simón Atzitzintla** (los demás pueblos los agregas tú desde el panel).
 3. **Authentication → Providers → Email** activado. En **Authentication → URL Configuration** pon la URL de la
    app (la de Vercel/Netlify) en *Site URL* y en *Redirect URLs*.
 
 ### Paso 2 — Tú quedas como el primer admin (Roep Tech)
 
-1. En tu app, entra a **Login → Crear cuenta** con tu correo y una contraseña (esto crea tu cuenta como *vecino*).
+1. En tu app, entra a **Login → Crear cuenta** con tu correo y una contraseña (esto crea tu cuenta como *vecino*;
+   ahí mismo te pregunta **de dónde eres**, por defecto San Simón Atzitzintla).
 2. Ve a **Supabase → Table Editor → profiles** → busca tu fila → cambia `rol` de `vecino` a **`admin`** → **Save**.
 3. Sal y vuelve a entrar. Ya aparece **🛡️ Panel de Roep Tech** completo.
 
@@ -148,6 +171,7 @@ En ambos casos, en **Settings → Environment Variables** agrega `VITE_SUPABASE_
 - [ ] Publicaste un aviso con foto y video corto para ver que se comprimen.
 - [ ] Probaron el **modo libre** (sin cuenta) y solo salen Venta/Evento/Ayuda/Pregunta.
 - [ ] Alguien mandó una queja al **buzón** y le respondiste desde el panel.
+- [ ] Agregaste el pueblo desde **Panel de Roep Tech → 🏘️ Pueblos** y apareció en el filtro y en el registro.
 - [ ] Cambiaste `src/lib/marca.js` con el **enlace y contacto reales de Roep Tech** (sigue con datos de ejemplo).
 
 ### 🔒 La app compilada NO lleva datos de prueba
@@ -160,7 +184,9 @@ Para que nunca aparezcan perfiles ni publicaciones de ejemplo en la versión pub
 - Si subes el build **sin** conectar Supabase, la app no muestra inventos: aparece una pantalla que
   dice *“falta conectar la base de datos”* con las variables que faltan.
 - En `supabase/schema.sql` **no hay datos de ejemplo**: la base arranca vacía. Las primeras cuentas
-  las creas tú desde el panel; el contenido lo escribe el pueblo.
+  las creas tú desde el panel; el contenido lo escribe el pueblo. El **único dato inicial** es el nombre
+  del pueblo **San Simón Atzitzintla**, que es la comunidad que usa la app (no es un perfil ni una
+  publicación de prueba).
 - Solo quedan textos de ejemplo en las cajas de registro (placeholders como *“Ej. Presidencia
   Municipal”*), que son guías de escritura, no datos.
 
@@ -181,7 +207,7 @@ Para que nunca aparezcan perfiles ni publicaciones de ejemplo en la versión pub
 ```bash
 npm run build     # genera dist/
 npm run preview   # probar el build
-npm run smoke     # 70+ pruebas de las reglas del negocio
+npm run smoke     # 110+ pruebas de las reglas del negocio
 ```
 
 Sube `dist/` a Vercel o Netlify (o usa `vercel` como arriba). Recuerda configurar las variables de entorno
@@ -192,7 +218,7 @@ Sube `dist/` a Vercel o Netlify (o usa `vercel` como arriba). Recuerda configura
 ## 🧭 Estructura
 
 ```
-supabase/schema.sql     Esquema completo + RLS + triggers de cupo + publicar_invitado + buzon
+supabase/schema.sql     Esquema completo + comunidades + RLS + triggers de cupo + publicar_invitado + buzon
 scripts/gen-icons.mjs   Genera los iconos PNG de la PWA (npm run icons)
 scripts/smoke.mjs       Pruebas automaticas (npm run smoke)
 public/sw.js            Service worker: caché + web push

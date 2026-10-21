@@ -79,7 +79,10 @@ export default function PostDetalle() {
             <Avatar nombre={post.author_name} negocio={Boolean(post.business_id)} />
             <div className="post-autor">
               <b>{post.business_name || post.author_name}</b>
-              <div className="meta">{haceCuanto(post.creado_en)}</div>
+              <div className="meta">
+                {haceCuanto(post.creado_en)}
+                {post.comunidad ? ` · 📍 ${post.comunidad}` : ''}
+              </div>
             </div>
             <TypeBadge tipo={post.tipo} />
           </div>

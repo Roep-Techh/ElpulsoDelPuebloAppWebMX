@@ -76,6 +76,7 @@ export default function PostCard({ post, alAbrir }) {
             <div className="meta">
               {haceCuanto(post.creado_en)}
               {post.modo_invitado ? ' · sin cuenta' : ''}
+              {post.comunidad ? ` · 📍 ${post.comunidad}` : ''}
               {post.lugar ? ` · ${post.lugar}` : ''}
             </div>
           </div>

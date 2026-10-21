@@ -12,7 +12,7 @@ export default function Negocios() {
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const tab = params.get('empleos') ? 'empleos' : 'negocios'
-  const { user, mostrarToast } = useApp()
+  const { user, mostrarToast, comunidad } = useApp()
 
   const [q, setQ] = useState('')
   const [rubro, setRubro] = useState('')
@@ -23,11 +23,14 @@ export default function Negocios() {
   const [form, setForm] = useState({ nombre: '', rubro: 'Comida', emoji: '🏪', telefono: '', direccion: '', horario: '', descripcion: '' })
 
   const cargar = async () => {
-    const [n, e] = await Promise.all([api.businesses.list(), api.posts.list({ tipo: 'empleo', limit: 50 })])
+    const [n, e] = await Promise.all([
+      api.businesses.list({ comunidadId: comunidad }),
+      api.posts.list({ tipo: 'empleo', limit: 50, comunidadId: comunidad })
+    ])
     setNegocios(n)
     setEmpleos(e)
   }
-  useEffect(() => { cargar() }, [])
+  useEffect(() => { cargar() }, [comunidad])
 
   const sponsors = useMemo(() => (negocios || []).filter((n) => n.es_patrocinado), [negocios])
 
@@ -190,6 +193,7 @@ export default function Negocios() {
                 <div className="badges">
                   {n.es_verificado && <span className="mini-badge verif">✓ Verificado</span>}
                   {n.es_patrocinado && <span className="mini-badge spon">✦ Patrocinador</span>}
+                  {n.comunidad && <span className="mini-badge">📍 {n.comunidad}</span>}
                   <span className="mini-badge">📱 {n.telefono || 'sin teléfono'}</span>
                 </div>
               </div>

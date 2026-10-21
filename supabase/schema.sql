@@ -7,6 +7,20 @@
 create extension if not exists "uuid-ossp";
 create extension if not exists "pgcrypto";
 
+-- ---------- Comunidades / pueblos ----------
+-- Cada pueblo es una comunidad propia. El primero (y por ahora el unico) es
+-- San Simon Atzitzintla; Roep Tech agrega mas pueblos desde su panel cuando
+-- lleguen vecinos de otro pueblo. Solo se inserta este de ejemplo inicial.
+create table if not exists public.comunidades (
+  id uuid primary key default uuid_generate_v4(),
+  nombre text not null unique,
+  activa boolean not null default true,
+  creado_en timestamptz default now()
+);
+
+insert into public.comunidades (nombre) values ('San Simón Atzitzintla')
+on conflict (nombre) do nothing;
+
 -- ---------- Perfiles ----------
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
@@ -14,16 +28,31 @@ create table if not exists public.profiles (
   avatar_url text,
   rol text not null default 'vecino' check (rol in ('vecino','moderador','admin')),
   zona text,
+  -- de donde es la cuenta: se le pregunta al registrarse
+  comunidad_id uuid references public.comunidades(id) on delete set null,
   telefono_verificado boolean default false,
   creado_en timestamptz default now()
 );
 
+-- bases ya creadas: la columna llega sin tocar los datos existentes
+alter table public.profiles add column if not exists comunidad_id uuid references public.comunidades(id) on delete set null;
+
 -- Trigger: crear perfil automatico al registrarse
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  v_com uuid;
 begin
-  insert into public.profiles (id, nombre)
-  values (new.id, coalesce(new.raw_user_meta_data->>'full_name', new.raw_user_meta_data->>'name', split_part(new.email,'@',1)))
+  -- la app manda la comunidad elegida al registrarse (si es valida)
+  begin
+    v_com := nullif(new.raw_user_meta_data->>'comunidad_id','')::uuid;
+  exception when others then
+    v_com := null;
+  end;
+  insert into public.profiles (id, nombre, comunidad_id)
+  values (new.id,
+          coalesce(new.raw_user_meta_data->>'full_name', new.raw_user_meta_data->>'name', split_part(new.email,'@',1)),
+          (select id from public.comunidades where id = v_com and activa))
   on conflict (id) do nothing;
   return new;
 end $$;
@@ -50,8 +79,12 @@ create table if not exists public.businesses (
   es_patrocinado boolean default false,
   patrocinio_hasta date,
   seguidores int default 0,
+  -- de donde es el negocio (sale del perfil de quien lo registra)
+  comunidad_id uuid references public.comunidades(id) on delete set null,
   creado_en timestamptz default now()
 );
+
+alter table public.businesses add column if not exists comunidad_id uuid references public.comunidades(id) on delete set null;
 
 -- ---------- Roles / permisos ----------
 -- admin = Roep Tech. moderador = entidades locales (Presidencia, Comisiones, Iglesia):
@@ -69,14 +102,18 @@ $$;
 -- ============================================================
 --  ADMINISTRACION DE CUENTAS (solo Roep Tech)
 --  Roep Tech crea, desde su panel, las cuentas de Presidencia,
---  Comisiones, Iglesia, negocios y vecinos, con el rol que sea.
+--  Comisiones, Iglesia, negocios y vecinos, con el rol que sea
+--  y con la comunidad (pueblo) a la que pertenecen.
 -- ============================================================
+drop function if exists public.admin_crear_usuario(text, text, text, text);
 create or replace function public.admin_crear_usuario(
-  p_email text, p_nombre text, p_password text, p_rol text default 'vecino'
+  p_email text, p_nombre text, p_password text, p_rol text default 'vecino',
+  p_comunidad uuid default null
 ) returns uuid language plpgsql security definer set search_path = public as $$
 declare
   v_id uuid;
   v_email text := lower(trim(coalesce(p_email,'')));
+  v_com uuid;
 begin
   if not public.es_admin() then
     raise exception 'Solo Roep Tech puede crear cuentas.';
@@ -92,6 +129,15 @@ begin
   end if;
   if exists (select 1 from auth.users where lower(email) = v_email) then
     raise exception 'Ese correo ya tiene cuenta. Si olvidó la contraseña, cámbiala desde aquí.';
+  end if;
+
+  -- comunidad: la indicada, o el primer pueblo activo si no se indicó
+  select coalesce(
+    (select id from public.comunidades where id = p_comunidad and activa),
+    (select id from public.comunidades where activa order by creado_en limit 1)
+  ) into v_com;
+  if v_com is null then
+    raise exception 'Aún no hay ningún pueblo activo. Agrégalo desde el panel.';
   end if;
 
   v_id := gen_random_uuid();
@@ -110,9 +156,10 @@ begin
   values (gen_random_uuid(), v_id, v_email,
           jsonb_build_object('sub', v_id::text, 'email', v_email), 'email', now(), now(), now());
 
-  -- el trigger handle_new_user crea el perfil; le ponemos nombre y rol
+  -- el trigger handle_new_user crea el perfil; le ponemos nombre, rol y pueblo
   update public.profiles
-     set nombre = coalesce(p_nombre,'Vecino'), rol = coalesce(p_rol,'vecino')
+     set nombre = coalesce(p_nombre,'Vecino'), rol = coalesce(p_rol,'vecino'),
+         comunidad_id = v_com
    where id = v_id;
 
   return v_id;
@@ -155,10 +202,10 @@ begin
 end $$;
 
 -- solo el admin de la app puede ejecutarlas
-revoke execute on function public.admin_crear_usuario(text, text, text, text) from public, anon;
+revoke execute on function public.admin_crear_usuario(text, text, text, text, uuid) from public, anon;
 revoke execute on function public.admin_cambiar_rol(uuid, text) from public, anon;
 revoke execute on function public.admin_cambiar_password(uuid, text) from public, anon;
-grant execute on function public.admin_crear_usuario(text, text, text, text) to authenticated;
+grant execute on function public.admin_crear_usuario(text, text, text, text, uuid) to authenticated;
 grant execute on function public.admin_cambiar_rol(uuid, text) to authenticated;
 grant execute on function public.admin_cambiar_password(uuid, text) to authenticated;
 
@@ -168,6 +215,8 @@ create table if not exists public.posts (
   -- author_id NULL = modo libre (sin cuenta)
   author_id uuid references public.profiles(id) on delete cascade,
   business_id uuid references public.businesses(id) on delete cascade,
+  -- de donde es quien publica (se hereda del perfil; el invitado elige)
+  comunidad_id uuid references public.comunidades(id) on delete set null,
   -- modo libre
   nombre_invitado text,
   modo_invitado boolean not null default false,
@@ -198,10 +247,13 @@ create table if not exists public.posts (
   creado_en timestamptz default now()
 );
 
+alter table public.posts add column if not exists comunidad_id uuid references public.comunidades(id) on delete set null;
+
 create index if not exists posts_tipo_idx on public.posts(tipo, creado_en desc);
 create index if not exists posts_estado_idx on public.posts(estado, creado_en desc);
 create index if not exists posts_business_idx on public.posts(business_id);
 create index if not exists posts_expira_idx on public.posts(expira_en);
+create index if not exists posts_comunidad_idx on public.posts(comunidad_id, creado_en desc);
 
 -- ---------- Limite diario (3/dia negocio - 1/dia vecino) ----------
 create table if not exists public.daily_limits (
@@ -396,6 +448,7 @@ begin
 end $$;
 
 -- Publica SIN cuenta, aplicando todos los candados aqui mismo
+drop function if exists public.publicar_invitado(text, text, text, text, text, text, text, text, timestamptz);
 create or replace function public.publicar_invitado(
   p_dispositivo text,
   p_nombre text,
@@ -405,15 +458,25 @@ create or replace function public.publicar_invitado(
   p_precio text default null,
   p_lugar text default null,
   p_contacto text default null,
-  p_fecha_evento timestamptz default null
+  p_fecha_evento timestamptz default null,
+  p_comunidad uuid default null
 ) returns public.posts language plpgsql security definer set search_path = public as $$
 declare
   v_nombre text := trim(coalesce(p_nombre,''));
   v_estado text := 'activo';
   v_motivos text := '';
   v_id uuid;
+  v_com uuid;
   v_row public.posts;
 begin
+  -- de donde es el invitado: el pueblo indicado, o el primero activo
+  select coalesce(
+    (select id from public.comunidades where id = p_comunidad and activa),
+    (select id from public.comunidades where activa order by creado_en limit 1)
+  ) into v_com;
+  if v_com is null then
+    raise exception 'Aun no hay ningun pueblo activo.';
+  end if;
   -- candado 1: nombre publico obligatorio y limpio
   if length(v_nombre) < 2 or length(v_nombre) > 24 then
     raise exception 'Escribe tu nombre publico (entre 2 y 24 caracteres).';
@@ -446,11 +509,11 @@ begin
 
   insert into public.posts
     (author_id, nombre_invitado, modo_invitado, dispositivo_hash, revisado, motivos,
-     tipo, prioridad, titulo, cuerpo, precio, lugar, contacto, fecha_evento, estado)
+     tipo, prioridad, titulo, cuerpo, precio, lugar, contacto, fecha_evento, estado, comunidad_id)
   values
     (null, v_nombre, true, p_dispositivo, (v_estado = 'activo'), v_motivos,
      p_tipo, 'comunidad', trim(p_titulo), coalesce(p_cuerpo,''), p_precio, p_lugar,
-     p_contacto, p_fecha_evento, v_estado)
+     p_contacto, p_fecha_evento, v_estado, v_com)
   returning id into v_id;
 
   insert into public.guest_rate (dispositivo_hash, ultima)
@@ -491,12 +554,26 @@ alter table public.follows enable row level security;
 alter table public.push_subscriptions enable row level security;
 alter table public.feedback enable row level security;
 alter table public.guest_rate enable row level security;
+alter table public.comunidades enable row level security;
+
+-- comunidades (pueblos): cualquiera las lee; solo Roep Tech agrega o cambia
+drop policy if exists "pueblos visibles" on public.comunidades;
+create policy "pueblos visibles" on public.comunidades for select using (true);
+drop policy if exists "Roep Tech agrega pueblos" on public.comunidades;
+create policy "Roep Tech agrega pueblos" on public.comunidades for insert with check (public.es_admin());
+drop policy if exists "Roep Tech edita pueblos" on public.comunidades;
+create policy "Roep Tech edita pueblos" on public.comunidades for update using (public.es_admin()) with check (public.es_admin());
+drop policy if exists "Roep Tech borra pueblos" on public.comunidades;
+create policy "Roep Tech borra pueblos" on public.comunidades for delete using (public.es_admin());
 
 -- profiles
 drop policy if exists "perfiles visibles" on public.profiles;
 create policy "perfiles visibles" on public.profiles for select using (true);
 drop policy if exists "edito mi perfil" on public.profiles;
-create policy "edito mi perfil" on public.profiles for update using (auth.uid() = id);
+-- cada quien edita lo suyo; Roep Tech tambien puede (rol, pueblo, etc.)
+create policy "edito mi perfil" on public.profiles for update
+  using (auth.uid() = id or public.es_admin())
+  with check (auth.uid() = id or public.es_admin());
 
 -- businesses
 drop policy if exists "negocios visibles" on public.businesses;
@@ -588,9 +665,26 @@ drop policy if exists "comento" on public.comments;
 create policy "comento" on public.comments for insert with check (auth.uid() = author_id);
 
 -- ============================================================
+--  PUEBLOS EN DATOS EXISTENTES (bases creadas antes del filtro)
+--  Cualquier perfil, negocio o publicacion que no tenga pueblo
+--  se le asigna el primero activo para que NADA quede fuera del filtro.
+-- ============================================================
+update public.profiles    set comunidad_id = (select id from public.comunidades where activa order by creado_en limit 1)
+  where comunidad_id is null and exists (select 1 from public.comunidades);
+update public.businesses  set comunidad_id = (select id from public.comunidades where activa order by creado_en limit 1)
+  where comunidad_id is null and exists (select 1 from public.comunidades);
+update public.posts       set comunidad_id = (select id from public.comunidades where activa order by creado_en limit 1)
+  where comunidad_id is null and exists (select 1 from public.comunidades);
+create index if not exists businesses_comunidad_idx on public.businesses(comunidad_id);
+create index if not exists profiles_comunidad_idx on public.profiles(comunidad_id);
+
+-- ============================================================
 --  SIN DATOS DE EJEMPLO: la base arranca vacia de verdad.
 --  Las cuentas las crea Roep Tech desde su panel y el contenido
 --  lo escribe el pueblo. (No hay perfiles ni publicaciones de prueba.)
+--  Unico dato inicial: el pueblo San Simon Atzitzintla, que es la
+--  comunidad que usa la app. Roep Tech agrega mas pueblos desde el
+--  panel cuando lleguen vecinos de otro pueblo.
 -- ============================================================
 
 -- Listo. La app ya funciona con estos permisos.

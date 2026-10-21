@@ -82,6 +82,34 @@ img { max-width: 100%; display: block; }
 .header-sub { font-size: 12px; opacity: 0.82; font-weight: 400; }
 .header-spacer { flex: 1; }
 
+/* ---------- Filtro de pueblo (comunidad) ---------- */
+.filtro-pueblo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px auto 0;
+  max-width: var(--max);
+  font-size: 13px;
+}
+.filtro-pueblo-texto { opacity: 0.85; font-weight: 600; }
+.filtro-pueblo-select {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+}
+.filtro-pueblo-select option { color: #14231c; background: #fff; }
+.filtro-pueblo-nota {
+  font-size: 11px;
+  opacity: 0.72;
+  font-weight: 400;
+}
+
 .header-btn {
   position: relative;
   background: rgba(255, 255, 255, 0.14);

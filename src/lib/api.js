@@ -16,6 +16,35 @@ export { CONFIG }
 export { DEMO_LOGIN, DEMO_PASSWORD } from './demo'
 export { invitado } from './demo'
 
+/* ---------- Comunidades (pueblos) ---------- */
+export const comunidades = {
+  async listar() {
+    if (!CONECTADO) return demo.comunidades.listar()
+    const { data } = await supabase.from('comunidades').select('*').order('nombre')
+    return data || []
+  },
+  /** agrega un pueblo: la politica RLS deja pasar solo a Roep Tech */
+  async crear(nombre) {
+    if (!CONECTADO) return demo.comunidades.crear(nombre)
+    const { data, error } = await supabase
+      .from('comunidades')
+      .insert({ nombre: String(nombre || '').trim() })
+      .select()
+      .single()
+    return error ? { error: traducir(error.message) } : { data }
+  },
+  async alternar(id, activa) {
+    if (!CONECTADO) return demo.comunidades.alternar(id, activa)
+    const { data, error } = await supabase
+      .from('comunidades')
+      .update({ activa: Boolean(activa) })
+      .eq('id', id)
+      .select()
+      .single()
+    return error ? { error: traducir(error.message) } : { ok: true, data }
+  }
+}
+
 const haySesion = async () => (await supabase.auth.getSession()).data.session
 
 /* ---------- Auth ---------- */
@@ -25,13 +54,19 @@ export const auth = {
     const { data } = await supabase.auth.getSession()
     const u = data?.session?.user
     if (!u) return null
-    const { data: perfil } = await supabase.from('profiles').select('nombre, rol, zona').eq('id', u.id).single()
+    const { data: perfil } = await supabase
+      .from('profiles')
+      .select('nombre, rol, zona, comunidad_id, comunidades(nombre)')
+      .eq('id', u.id)
+      .single()
     return {
       id: u.id,
       nombre: perfil?.nombre || u.email.split('@')[0],
       email: u.email,
       rol: perfil?.rol || 'vecino',
-      zona: perfil?.zona || ''
+      zona: perfil?.zona || '',
+      comunidad_id: perfil?.comunidad_id || null,
+      comunidad: perfil?.comunidades?.nombre || ''
     }
   },
   async signIn(cred) {
@@ -40,15 +75,24 @@ export const auth = {
     if (error) return { error: traducir(error.message) }
     return { data: await this.getSession() }
   },
-  async signUp({ nombre, email, password }) {
-    if (!CONECTADO) return demo.auth.signUp({ nombre, email, password })
+  async signUp({ nombre, email, password, comunidad_id }) {
+    if (!CONECTADO) return demo.auth.signUp({ nombre, email, password, comunidad_id })
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { full_name: nombre }, emailRedirectTo: CONFIG.siteUrl }
+      options: {
+        data: { full_name: nombre, comunidad_id: comunidad_id || '' },
+        emailRedirectTo: CONFIG.siteUrl
+      }
     })
     if (error) return { error: traducir(error.message) }
-    if (data.user) await supabase.from('profiles').upsert({ id: data.user.id, nombre }).select().single()
+    if (data.user) {
+      await supabase
+        .from('profiles')
+        .upsert({ id: data.user.id, nombre, comunidad_id: comunidad_id || null })
+        .select()
+        .single()
+    }
     return { data: await this.getSession(), mensaje: 'Revisa tu correo para confirmar la cuenta.' }
   },
   async signInGoogle() {
@@ -89,7 +133,8 @@ function mapPost(r) {
   return {
     ...r,
     author_name: r.profiles?.nombre || 'Vecino',
-    business_name: r.businesses?.nombre || null
+    business_name: r.businesses?.nombre || null,
+    comunidad: r.comunidades?.nombre || null
   }
 }
 
@@ -126,11 +171,11 @@ function datosAviso(payload) {
 export const posts = {
   async list(filtros = {}) {
     if (!CONECTADO) return demo.posts.list(filtros)
-    const { tipo, prioridad, q, businessId, authorId, limit = 100 } = filtros
+    const { tipo, prioridad, q, businessId, authorId, comunidadId, limit = 100 } = filtros
     const dev = demo.invitado.id()
     let query = supabase
       .from('posts')
-      .select('*, profiles(nombre), businesses(nombre)')
+      .select('*, profiles(nombre), businesses(nombre), comunidades(nombre)')
       .or(`estado.eq.activo,and(estado.eq.pendiente,dispositivo_hash.eq.${dev})`)
       .order('creado_en', { ascending: false })
       .limit(limit)
@@ -138,6 +183,7 @@ export const posts = {
     if (prioridad) query = query.eq('prioridad', prioridad)
     if (businessId) query = query.eq('business_id', businessId)
     if (authorId) query = query.eq('author_id', authorId)
+    if (comunidadId) query = query.eq('comunidad_id', comunidadId)
     if (q) query = query.or(`titulo.ilike.%${q}%,cuerpo.ilike.%${q}%`)
     const { data, error } = await query
     if (error) return []
@@ -148,7 +194,7 @@ export const posts = {
     if (!CONECTADO) return demo.posts.get(id)
     const { data } = await supabase
       .from('posts')
-      .select('*, profiles(nombre), businesses(nombre)')
+      .select('*, profiles(nombre), businesses(nombre), comunidades(nombre)')
       .eq('id', id)
       .maybeSingle()
     if (!data) return null
@@ -194,7 +240,8 @@ export const posts = {
         p_precio: payload.precio || null,
         p_lugar: payload.lugar || null,
         p_contacto: payload.contacto || null,
-        p_fecha_evento: payload.fecha_evento || null
+        p_fecha_evento: payload.fecha_evento || null,
+        p_comunidad: payload.comunidad_id || null
       })
       if (error) return { error: traducir(error.message) }
       const pendiente = data?.estado === 'pendiente'
@@ -207,6 +254,24 @@ export const posts = {
 
     /* ---------- CON CUENTA ---------- */
     if (!s) return { error: 'Inicia sesión para publicar.' }
+
+    // el pueblo se hereda del perfil de quien publica (si no tiene, el primero activo,
+    // para que su publicacion nunca quede fuera del filtro)
+    const { data: perfil } = await supabase
+      .from('profiles')
+      .select('comunidad_id')
+      .eq('id', s.user.id)
+      .maybeSingle()
+    let comunidadId = perfil?.comunidad_id || null
+    if (!comunidadId) {
+      const { data: cs } = await supabase
+        .from('comunidades')
+        .select('id')
+        .eq('activa', true)
+        .order('creado_en')
+        .limit(1)
+      comunidadId = cs?.[0]?.id || null
+    }
 
     // cupo del dia (la base de datos tambien lo bloquea por trigger)
     const { data: restante } = await supabase.rpc('quota_restante', { p_user: s.user.id })
@@ -235,6 +300,7 @@ export const posts = {
     const fila = {
       author_id: s.user.id,
       business_id: businessId,
+      comunidad_id: comunidadId,
       tipo: payload.tipo,
       prioridad: payload.prioridad || 'comunidad',
       titulo: String(payload.titulo || '').trim(),
@@ -361,7 +427,7 @@ export const cuentas = {
     if (!s) return []
     const { data, error } = await supabase
       .from('profiles')
-      .select('id, nombre, rol, zona, creado_en, auth_users:auth.users(email, created_at)')
+      .select('id, nombre, rol, zona, creado_en, comunidad_id, comunidades(nombre), auth_users:auth.users(email, created_at)')
       .order('creado_en', { ascending: false })
       .limit(300)
     if (error) return []
@@ -371,18 +437,32 @@ export const cuentas = {
       rol: p.rol,
       zona: p.zona || '',
       email: p.auth_users?.email || '(sin correo)',
-      creado_en: p.creado_en
+      creado_en: p.creado_en,
+      comunidad_id: p.comunidad_id || null,
+      comunidad: p.comunidades?.nombre || ''
     }))
   },
-  async crear({ email, nombre, password, rol }) {
-    if (!CONECTADO) return demo.cuentas.crear({ email, nombre, password, rol })
+  async crear({ email, nombre, password, rol, comunidad_id }) {
+    if (!CONECTADO) return demo.cuentas.crear({ email, nombre, password, rol, comunidad_id })
     const { data, error } = await supabase.rpc('admin_crear_usuario', {
       p_email: email,
       p_nombre: nombre,
       p_password: password,
-      p_rol: rol || 'vecino'
+      p_rol: rol || 'vecino',
+      p_comunidad: comunidad_id || null
     })
     return error ? { error: traducir(error.message) } : { data: { id: data, email, nombre, rol: rol || 'vecino' } }
+  },
+  /** mueve una cuenta a otro pueblo: solo Roep Tech */
+  async cambiarComunidad(id, comunidad_id) {
+    if (!CONECTADO) return demo.cuentas.cambiarComunidad(id, comunidad_id)
+    const { data, error } = await supabase
+      .from('profiles')
+      .update({ comunidad_id: comunidad_id || null })
+      .eq('id', id)
+      .select('id, comunidad_id')
+      .single()
+    return error ? { error: traducir(error.message) } : { ok: true, data }
   },
   async cambiarRol(id, rol) {
     if (!CONECTADO) return demo.cuentas.cambiarRol(id, rol)
@@ -398,13 +478,17 @@ export const cuentas = {
 
 /* ---------- Negocios ---------- */
 export const businesses = {
-  async list({ q, soloPatrocinados, ownerId } = {}) {
-    if (!CONECTADO) return demo.businesses.list({ q, soloPatrocinados, ownerId })
-    let query = supabase.from('businesses').select('*').order('es_patrocinado', { ascending: false })
+  async list({ q, soloPatrocinados, ownerId, comunidadId } = {}) {
+    if (!CONECTADO) return demo.businesses.list({ q, soloPatrocinados, ownerId, comunidadId })
+    let query = supabase
+      .from('businesses')
+      .select('*, comunidades(nombre)')
+      .order('es_patrocinado', { ascending: false })
     if (ownerId) query = query.eq('owner_id', ownerId)
     if (soloPatrocinados) query = query.eq('es_patrocinado', true)
+    if (comunidadId) query = query.eq('comunidad_id', comunidadId)
     const { data } = await query
-    let arr = data || []
+    let arr = (data || []).map((n) => ({ ...n, comunidad: n.comunidades?.nombre || null }))
     if (q) {
       const t = q.toLowerCase()
       arr = arr.filter((n) => [n.nombre, n.rubro, n.descripcion, n.direccion].some((s) => String(s || '').toLowerCase().includes(t)))
@@ -413,16 +497,37 @@ export const businesses = {
   },
   async get(id) {
     if (!CONECTADO) return demo.businesses.get(id)
-    const { data } = await supabase.from('businesses').select('*').eq('id', id).single()
-    return data || null
+    const { data } = await supabase
+      .from('businesses')
+      .select('*, comunidades(nombre)')
+      .eq('id', id)
+      .single()
+    if (!data) return null
+    return { ...data, comunidad: data.comunidades?.nombre || null }
   },
   async create(payload) {
     if (!CONECTADO) return demo.businesses.create(payload)
     const s = await haySesion()
     if (!s) return { error: 'Inicia sesión para crear tu negocio.' }
+    // el negocio es del pueblo de su dueño (o del primero activo si aún no tiene)
+    const { data: perfil } = await supabase
+      .from('profiles')
+      .select('comunidad_id')
+      .eq('id', s.user.id)
+      .maybeSingle()
+    let comunidadId = perfil?.comunidad_id || null
+    if (!comunidadId) {
+      const { data: cs } = await supabase
+        .from('comunidades')
+        .select('id')
+        .eq('activa', true)
+        .order('creado_en')
+        .limit(1)
+      comunidadId = cs?.[0]?.id || null
+    }
     const { data, error } = await supabase
       .from('businesses')
-      .insert({ ...payload, owner_id: s.user.id })
+      .insert({ ...payload, owner_id: s.user.id, comunidad_id: comunidadId })
       .select()
       .single()
     return error ? { error: traducir(error.message) } : { data }

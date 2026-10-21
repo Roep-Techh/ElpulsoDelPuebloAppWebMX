@@ -15,7 +15,7 @@ const prefsDefecto = { urgentes: true, zona: true, negocios: true }
 export default function Cuenta() {
   const navigate = useNavigate()
   const [params] = useSearchParams()
-  const { user, salir, mostrarToast, quota, refrescarCupo, modo } = useApp()
+  const { user, salir, mostrarToast, quota, refrescarCupo, modo, comunidades, actualizarPerfil } = useApp()
 
   const [seccion, setSeccion] = useState(() => params.get('s') || '')
   const [misPosts, setMisPosts] = useState([])
@@ -73,6 +73,14 @@ export default function Cuenta() {
     const nueva = { ...prefs, [k]: v }
     setPrefs(nueva)
     localStorage.setItem(PREF_KEY, JSON.stringify(nueva))
+  }
+
+  const cambiarMiPueblo = async (comunidad_id) => {
+    const r = await actualizarPerfil({ comunidad_id })
+    if (r.error) return mostrarToast(r.error, 'error')
+    const nombre = comunidades.find((c) => c.id === comunidad_id)?.nombre || 'otro pueblo'
+    mostrarToast(`Ya eres de ${nombre} 🏘️`, 'ok')
+    cargar()
   }
 
   const activarPush = async () => {
@@ -141,6 +149,7 @@ export default function Cuenta() {
             </span>
           )}
           {user.zona && <span className="mini-badge" style={{ background: 'rgba(255,255,255,.18)', color: '#fff' }}>📍 {user.zona}</span>}
+          {user.comunidad && <span className="mini-badge" style={{ background: 'rgba(255,255,255,.18)', color: '#fff' }}>🏘️ {user.comunidad}</span>}
           {negocio && <span className="mini-badge spon">🏪 {negocio.nombre}</span>}
         </div>
       </div>
@@ -159,6 +168,10 @@ export default function Cuenta() {
           <button className="opcion" onClick={() => setSeccion(seccion === 'misposts' ? '' : 'misposts')}>
             <span className="ico">✏️</span> Mis publicaciones
             <span className="der">{misPosts.length} {seccion === 'misposts' ? '▾' : '▸'}</span>
+          </button>
+          <button className="opcion" onClick={() => setSeccion(seccion === 'pueblo' ? '' : 'pueblo')}>
+            <span className="ico">🏘️</span> Mi pueblo
+            <span className="der">{user.comunidad || 'Elegir ▸'} {seccion === 'pueblo' ? '▾' : '▸'}</span>
           </button>
           <button className="opcion" onClick={() => navigate('/negocios')}>
             <span className="ico">🏪</span> {negocio ? 'Mi negocio' : 'Registrar mi negocio'}
@@ -205,6 +218,34 @@ export default function Cuenta() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* --------- MI PUEBLO --------- */}
+        {seccion === 'pueblo' && (
+          <div className="card card-pad" style={{ marginTop: 12 }}>
+            <b style={{ fontSize: 15 }}>🏘️ ¿De dónde eres?</b>
+            <p style={{ fontSize: 12.5, color: 'var(--texto-3)', margin: '5px 0 12px', lineHeight: 1.55 }}>
+              Así ves lo de tu comunidad y tus publicaciones salen en tu pueblo.
+              {user.comunidad ? ` Ahora estás en ${user.comunidad}.` : ''}
+            </p>
+            {comunidades.length === 0 && (
+              <p style={{ fontSize: 13, color: 'var(--texto-2)' }}>Aún no hay pueblos activos. Pídele a Roep Tech que agregue el tuyo.</p>
+            )}
+            {comunidades.length > 0 && (
+              <div className="field">
+                <select
+                  className="select"
+                  value={user.comunidad_id || comunidades[0].id}
+                  onChange={(e) => cambiarMiPueblo(e.target.value)}
+                >
+                  {comunidades.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                </select>
+              </div>
+            )}
+            <p style={{ fontSize: 11.5, color: 'var(--texto-3)', lineHeight: 1.55 }}>
+              💡 Tus publicaciones y negocios existentes no se borran; el filtro de arriba decide qué ves.
+            </p>
           </div>
         )}
 
@@ -339,6 +380,9 @@ export default function Cuenta() {
               </div>
             ))}
 
+            <div style={{ margin: '18px 0 4px', fontSize: 13, fontWeight: 800 }}>🏘️ Pueblos de la app</div>
+            <PanelPueblos />
+
             <div style={{ margin: '18px 0 4px', fontSize: 13, fontWeight: 800 }}>👥 Cuentas del pueblo</div>
             <PanelCuentas />
           </div>
@@ -419,6 +463,68 @@ function FilaPref({ ico, titulo, sub, on, onChange, bloqueado }) {
   )
 }
 
+/* ---------- Panel de pueblos/comunidades (solo Roep Tech) ---------- */
+function PanelPueblos() {
+  const { mostrarToast, comunidades, cargarComunidades } = useApp()
+  const [nombre, setNombre] = useState('')
+  const [guardando, setGuardando] = useState(false)
+
+  const agregar = async (e) => {
+    e.preventDefault()
+    if (!nombre.trim()) return
+    setGuardando(true)
+    const r = await api.comunidades.crear(nombre)
+    setGuardando(false)
+    if (r.error) return mostrarToast(r.error, 'error')
+    mostrarToast(`🏘️ Pueblo agregado: ${nombre.trim()}`, 'ok')
+    setNombre('')
+    cargarComunidades()
+  }
+
+  const alternar = async (c) => {
+    const r = await api.comunidades.alternar(c.id, !c.activa)
+    if (r.error) return mostrarToast(r.error, 'error')
+    mostrarToast(c.activa ? `${c.nombre} quedó desactivado` : `${c.nombre} activado`, 'ok')
+    cargarComunidades()
+  }
+
+  return (
+    <div>
+      <p style={{ fontSize: 12.5, color: 'var(--texto-3)', margin: '0 0 10px', lineHeight: 1.6 }}>
+        Cada pueblo es su propia comunidad: sus vecinos ven su contenido con el filtro de arriba.
+        <b> Cuando lleguen vecinos de otro pueblo (por ejemplo 10 personas), agrégalo aquí</b> y aparecerá
+        en el filtro y en el registro. Nadie lo puede agregar sin ti.
+      </p>
+
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+        <input
+          className="input"
+          style={{ flex: 1 }}
+          value={nombre}
+          maxLength={60}
+          onChange={(e) => setNombre(e.target.value)}
+          placeholder="Ej. San Pedro Atzompa"
+        />
+        <button className="btn btn-primario btn-mini" disabled={guardando} onClick={agregar}>
+          {guardando ? 'Agregando…' : '➕ Agregar pueblo'}
+        </button>
+      </div>
+
+      {comunidades.map((c) => (
+        <div className="admin-row" key={c.id}>
+          <div className="info">
+            <b>📍 {c.nombre}</b>
+            <span>{c.activa ? 'Activo · aparece en la app' : 'Desactivado · no aparece'}</span>
+          </div>
+          <button className="btn btn-secundario btn-mini" onClick={() => alternar(c)}>
+            {c.activa ? 'Desactivar' : 'Activar'}
+          </button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 /* ---------- Panel de cuentas (solo Roep Tech) ---------- */
 const ETIQUETAS_ROL = {
   admin: '💠 Admin (Roep Tech)',
@@ -432,15 +538,21 @@ const AYUDA_ROL = {
 }
 
 function PanelCuentas() {
-  const { mostrarToast } = useApp()
+  const { mostrarToast, comunidades, cargarComunidades } = useApp()
   const [cuentas, setCuentas] = useState([])
-  const [form, setForm] = useState({ nombre: '', email: '', password: '', rol: 'vecino' })
+  const [form, setForm] = useState({ nombre: '', email: '', password: '', rol: 'vecino', comunidad_id: '' })
   const [guardando, setGuardando] = useState(false)
   const [passAbierto, setPassAbierto] = useState('')
   const [passValor, setPassValor] = useState('')
 
   const cargar = async () => setCuentas(await api.cuentas.listar())
   useEffect(() => { cargar() }, [])
+  useEffect(() => {
+    // si no eligió pueblo, se queda con el primero activo
+    if (!form.comunidad_id && comunidades[0])
+      setForm((f) => ({ ...f, comunidad_id: comunidades[0].id }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [comunidades])
 
   const crear = async (e) => {
     e.preventDefault()
@@ -449,8 +561,9 @@ function PanelCuentas() {
     setGuardando(false)
     if (r.error) return mostrarToast(r.error, 'error')
     mostrarToast(`✅ Cuenta creada: ${form.email} (${form.rol})`, 'ok')
-    setForm({ nombre: '', email: '', password: '', rol: 'vecino' })
+    setForm({ nombre: '', email: '', password: '', rol: 'vecino', comunidad_id: comunidades[0]?.id || '' })
     cargar()
+    cargarComunidades()
   }
 
   const cambiarRol = async (id, rol) => {
@@ -467,6 +580,14 @@ function PanelCuentas() {
     mostrarToast('Contraseña actualizada 🔑', 'ok')
     setPassValor('')
     setPassAbierto('')
+    cargar()
+  }
+
+  const cambiarPueblo = async (id, comunidad_id) => {
+    const r = await api.cuentas.cambiarComunidad(id, comunidad_id)
+    if (r.error) return mostrarToast(r.error, 'error')
+    const nombre = comunidades.find((c) => c.id === comunidad_id)?.nombre || 'otro pueblo'
+    mostrarToast(`Cuenta movida a ${nombre} 📍`, 'ok')
     cargar()
   }
 
@@ -503,6 +624,15 @@ function PanelCuentas() {
               placeholder="Mínimo 6 caracteres" />
           </div>
         </div>
+        {comunidades.length > 0 && (
+          <div className="field">
+            <label>🏘️ ¿De dónde es? (pueblo de la cuenta)</label>
+            <select className="select" value={form.comunidad_id}
+              onChange={(e) => setForm({ ...form, comunidad_id: e.target.value })}>
+              {comunidades.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+            </select>
+          </div>
+        )}
         <div className="ayuda" style={{ marginBottom: 10 }}>{AYUDA_ROL[form.rol]}</div>
         <button className="btn btn-primario" disabled={guardando}>
           {guardando ? 'Creando…' : '➕ Crear cuenta'}
@@ -522,12 +652,20 @@ function PanelCuentas() {
           <div className="admin-row" style={{ flexWrap: 'wrap' }}>
             <div className="info" style={{ minWidth: 160, flex: 1 }}>
               <b>{ETIQUETAS_ROL[c.rol]?.split(' ')[0]} {c.nombre}</b>
-              <span>{c.email}</span>
+              <span>{c.email}{c.comunidad ? ` · 📍 ${c.comunidad}` : ''}</span>
             </div>
             <select className="select" style={{ width: 'auto', padding: '6px 9px', fontSize: 12.5 }}
               value={c.rol} onChange={(e) => cambiarRol(c.id, e.target.value)}>
               {Object.entries(ETIQUETAS_ROL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
+            {comunidades.length > 0 && (
+              <select className="select" style={{ width: 'auto', padding: '6px 9px', fontSize: 12.5 }}
+                title="Mover a otro pueblo"
+                value={c.comunidad_id || comunidades[0]?.id || ''}
+                onChange={(e) => cambiarPueblo(c.id, e.target.value)}>
+                {comunidades.map((cc) => <option key={cc.id} value={cc.id}>📍 {cc.nombre}</option>)}
+              </select>
+            )}
             <button className="btn btn-secundario btn-mini" onClick={() => setPassAbierto(passAbierto === c.id ? '' : c.id)}>
               🔑 Contraseña
             </button>

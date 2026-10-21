@@ -5,9 +5,9 @@ import { DEMO_LOGIN, DEMO_PASSWORD, MODO, auth } from '../lib/api'
 
 export default function Login() {
   const navigate = useNavigate()
-  const { entrar, registrar, mostrarToast } = useApp()
+  const { entrar, registrar, mostrarToast, comunidades } = useApp()
   const [modo, setModo] = useState('entrar') // entrar | crear
-  const [form, setForm] = useState({ nombre: '', email: '', password: '' })
+  const [form, setForm] = useState({ nombre: '', email: '', password: '', comunidad_id: '' })
   const [cargando, setCargando] = useState(false)
   const [error, setError] = useState('')
 
@@ -69,6 +69,28 @@ export default function Login() {
             <div className="field">
               <label>Tu nombre o el de tu negocio</label>
               <input className="input" value={form.nombre} onChange={set('nombre')} placeholder="Ej. María Hernández" required />
+            </div>
+          )}
+
+          {modo === 'crear' && (
+            <div className="field">
+              <label>¿De dónde eres?</label>
+              <select
+                className="select"
+                value={form.comunidad_id || comunidades[0]?.id || ''}
+                onChange={set('comunidad_id')}
+                required
+              >
+                {comunidades.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.nombre}
+                  </option>
+                ))}
+                {comunidades.length === 0 && <option value="">Selecciona tu pueblo</option>}
+              </select>
+              <div style={{ fontSize: 12, color: 'var(--texto-2)', marginTop: 4 }}>
+                Así ves lo de tu comunidad y otros vecinos saben de dónde eres.
+              </div>
             </div>
           )}
 

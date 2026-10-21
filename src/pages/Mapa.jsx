@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import * as api from '../lib/api'
+import { useApp } from '../context/AppContext'
 
 /* Punto central del pueblo (cámbialo por tu comunidad) */
 const CENTRO = [19.4326, -99.1332]
@@ -12,13 +13,14 @@ export default function Mapa() {
   const navigate = useNavigate()
   const cont = useRef(null)
   const mapa = useRef(null)
+  const { comunidad } = useApp()
   const [negocios, setNegocios] = useState([])
   const [eventos, setEventos] = useState([])
 
   useEffect(() => {
-    api.businesses.list().then(setNegocios)
-    api.posts.list({ tipo: 'evento', limit: 40 }).then((p) => setEventos(p.filter((e) => e.lat && e.lng)))
-  }, [])
+    api.businesses.list({ comunidadId: comunidad }).then(setNegocios)
+    api.posts.list({ tipo: 'evento', limit: 40, comunidadId: comunidad }).then((p) => setEventos(p.filter((e) => e.lat && e.lng)))
+  }, [comunidad])
 
   useEffect(() => {
     if (!cont.current || mapa.current) return

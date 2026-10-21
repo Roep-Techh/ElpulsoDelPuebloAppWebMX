@@ -246,6 +246,92 @@ const entra = await demo.auth.signIn({ email: 'presidencia@pueblo.mx', password:
 ok(Boolean(entra.data), 'la persona ya entra con la contraseña nueva')
 
 /* ============================================================
+   6b. PUEBLOS: se pregunta de dónde es cada quien
+   ============================================================ */
+console.log('\n--- Pueblos (comunidades) ---')
+const pueblos = await demo.comunidades.listar()
+ok(pueblos.length === 1 && pueblos[0].nombre === 'San Simón Atzitzintla',
+  'la app arranca con San Simón Atzitzintla como único pueblo')
+ok(pueblos[0].activa, 'el pueblo está activo')
+
+sinSesion()
+const puebloSinSesion = await demo.comunidades.crear('Otro Pueblo')
+ok(Boolean(puebloSinSesion.error), `sin sesión no se agrega ningún pueblo (${puebloSinSesion.error})`)
+sesion({ id: 'u-vecino', nombre: 'Carlos', email: 'vecino@pueblo.mx', rol: 'vecino', zona: '' })
+const puebloVecino = await demo.comunidades.crear('Otro Pueblo')
+ok(Boolean(puebloVecino.error), `un vecino no agrega pueblos (${puebloVecino.error})`)
+
+sesion({ id: 'u-roep', nombre: 'Roep Tech', email: 'roep@pueblo.mx', rol: 'admin', zona: '' })
+const puebloNuevo = await demo.comunidades.crear('  San Pedro Atzompa  ')
+ok(Boolean(puebloNuevo.data) && puebloNuevo.data.nombre === 'San Pedro Atzompa',
+  'Roep Tech agrega un pueblo nuevo desde su panel')
+const puebloDup = await demo.comunidades.crear('san pedro atzompa')
+ok(Boolean(puebloDup.error), `no se duplica el pueblo (${puebloDup.error})`)
+const puebloCorto = await demo.comunidades.crear('ab')
+ok(Boolean(puebloCorto.error), `rechaza nombres muy cortos (${puebloCorto.error})`)
+ok((await demo.comunidades.listar()).length === 2, 'ahora hay 2 pueblos')
+
+// registro: hay que decir de dónde es
+sinSesion()
+const registro = await demo.auth.signUp({ nombre: 'Nuevo Vecino', email: 'nuevo@pueblo.mx', password: 'clave123', comunidad_id: puebloNuevo.data.id })
+ok(Boolean(registro.data) && registro.data.comunidad === 'San Pedro Atzompa',
+  'al crear cuenta se guarda su pueblo y queda en la sesión')
+const registroSinPueblo = await demo.auth.signUp({ nombre: 'Sin Pueblo', email: 'sinpueblo@pueblo.mx', password: 'clave123' })
+ok(registroSinPueblo.data?.comunidad === 'San Simón Atzitzintla',
+  'si no elige pueblo, cae en el primero de la app')
+
+// el feed se filtra por pueblo
+const todoSanSimon = await demo.posts.list({ comunidadId: pueblos[0].id })
+const todoSanPedro = await demo.posts.list({ comunidadId: puebloNuevo.data.id })
+ok(todoSanSimon.length > 0 && todoSanPedro.length === 0,
+  'el contenido de un pueblo no se mezcla con el de otro')
+
+// publicar hereda el pueblo del autor (autor nuevo, sin cupo gastado)
+sesion({ id: 'u-test-pueblo', nombre: 'Vecino de Prueba', email: 'prueba@pueblo.mx', rol: 'vecino', zona: '', comunidad_id: pueblos[0].id })
+const enSanSimon = await demo.posts.create({ tipo: 'venta', titulo: 'Prueba de pueblo', cuerpo: 'x', comunidad_id: pueblos[0].id })
+ok(enSanSimon.data?.comunidad_id === pueblos[0].id, 'la publicación queda en el pueblo de su autor')
+const soloSimon = await demo.posts.list({ comunidadId: pueblos[0].id, q: 'Prueba de pueblo' })
+ok(soloSimon.length === 1 && soloSimon[0].comunidad === 'San Simón Atzitzintla',
+  'el feed filtrado muestra el nombre del pueblo')
+
+// el invitado también dice de dónde es (libera su turno de 24 h para la prueba)
+globalThis.localStorage.removeItem('elpulso.invitado.ultima')
+sinSesion()
+const invitadoPueblo = await demo.posts.create({
+  tipo: 'venta', titulo: 'Silla de ruedas', cuerpo: 'En buen estado',
+  invitado_nombre: 'María del Carmen', comunidad_id: puebloNuevo.data.id
+})
+ok(invitadoPueblo.data?.comunidad_id === puebloNuevo.data.id,
+  'la publicación sin cuenta también lleva su pueblo')
+ok((await demo.posts.list({})).length > todoSanSimon.length, 'sin filtro se ve todo, de todos los pueblos')
+
+// negocios del pueblo
+const negociosSanSimon = await demo.businesses.list({ comunidadId: pueblos[0].id })
+const negociosSanPedro = await demo.businesses.list({ comunidadId: puebloNuevo.data.id })
+ok(negociosSanSimon.length > 0 && negociosSanPedro.length === 0, 'los negocios también se filtran por pueblo')
+ok(negociosSanSimon.every((n) => n.comunidad === 'San Simón Atzitzintla'), 'cada negocio dice de dónde es')
+
+// cuentas con pueblo y mover de pueblo
+sesion({ id: 'u-roep', nombre: 'Roep Tech', email: 'roep@pueblo.mx', rol: 'admin', zona: '' })
+const cuentaPueblo = await demo.cuentas.crear({ email: 'otropueblo@pueblo.mx', nombre: 'Vecino de allá', password: 'clave123', rol: 'vecino', comunidad_id: puebloNuevo.data.id })
+ok(cuentaPueblo.data?.comunidad === 'San Pedro Atzompa', 'Roep Tech crea cuentas diciendo de dónde es')
+const movida = await demo.cuentas.cambiarComunidad(cuentaPueblo.data.id, pueblos[0].id)
+ok(Boolean(movida.ok), 'Roep Tech mueve una cuenta a otro pueblo')
+const listaConPueblo = await demo.cuentas.listar()
+ok(listaConPueblo.find((c) => c.id === cuentaPueblo.data.id)?.comunidad === 'San Simón Atzitzintla',
+  'la lista de cuentas muestra el pueblo de cada quien')
+sinSesion()
+const moverSinSesion = await demo.cuentas.cambiarComunidad(cuentaPueblo.data.id, pueblos[0].id)
+ok(Boolean(moverSinSesion.error), `sin sesión no se mueve nadie de pueblo (${moverSinSesion.error})`)
+
+// desactivar un pueblo
+sesion({ id: 'u-roep', nombre: 'Roep Tech', email: 'roep@pueblo.mx', rol: 'admin', zona: '' })
+const apagado = await demo.comunidades.alternar(puebloNuevo.data.id, false)
+ok(Boolean(apagado.ok), 'Roep Tech puede desactivar un pueblo')
+ok(!(await demo.comunidades.listar()).find((c) => c.id === puebloNuevo.data.id).activa, 'el pueblo queda inactivo')
+await demo.comunidades.alternar(puebloNuevo.data.id, true)
+
+/* ============================================================
    7. BUZON PRIVADO
    ============================================================ */
 console.log('\n--- Buzón de quejas, ideas y recomendaciones ---')

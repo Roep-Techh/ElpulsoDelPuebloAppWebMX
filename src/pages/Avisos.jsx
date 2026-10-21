@@ -15,13 +15,13 @@ const CHIPS = [
 
 export default function Avisos() {
   const navigate = useNavigate()
-  const { user } = useApp()
+  const { user, comunidad } = useApp()
   const [filtro, setFiltro] = useState('')
   const [avisos, setAvisos] = useState(null)
 
   useEffect(() => {
-    api.posts.list({ tipo: 'aviso', limit: 60 }).then(setAvisos)
-  }, [])
+    api.posts.list({ tipo: 'aviso', limit: 60, comunidadId: comunidad }).then(setAvisos)
+  }, [comunidad])
 
   const visibles = useMemo(() => {
     const arr = avisos || []

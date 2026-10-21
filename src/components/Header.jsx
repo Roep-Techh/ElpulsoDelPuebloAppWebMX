@@ -1,6 +1,7 @@
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { haceCuanto } from '../lib/format'
+import FiltroPueblos from './FiltroPueblos'
 
 const TITULOS = {
   '/': ['El Pulso del Pueblo', 'Todo lo que pasa cerca de ti'],
@@ -71,6 +72,9 @@ export default function Header() {
           </button>
         )}
       </div>
+
+      {/* filtro de pueblo: qué comunidad estás viendo */}
+      <FiltroPueblos />
 
       {panelAbierto && (
         <div

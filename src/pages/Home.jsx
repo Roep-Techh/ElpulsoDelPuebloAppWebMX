@@ -18,7 +18,7 @@ const FILTROS = [
 
 export default function Home() {
   const navigate = useNavigate()
-  const { user } = useApp()
+  const { user, comunidad } = useApp()
   const [q, setQ] = useState('')
   const [filtro, setFiltro] = useState('')
   const [posts, setPosts] = useState(null)
@@ -27,9 +27,9 @@ export default function Home() {
 
   const cargar = async () => {
     const [p, n, a] = await Promise.all([
-      api.posts.list({ limit: 60 }),
-      api.businesses.list(),
-      api.posts.list({ tipo: 'aviso', limit: 10 })
+      api.posts.list({ limit: 60, comunidadId: comunidad }),
+      api.businesses.list({ comunidadId: comunidad }),
+      api.posts.list({ tipo: 'aviso', limit: 10, comunidadId: comunidad })
     ])
     setPosts(p)
     setNegocios(n)
@@ -38,7 +38,8 @@ export default function Home() {
 
   useEffect(() => {
     cargar()
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [comunidad])
 
   const sponsors = useMemo(() => negocios.filter((n) => n.es_patrocinado), [negocios])
   const urgente = useMemo(() => avisos.find((a) => a.prioridad === 'urgente'), [avisos])

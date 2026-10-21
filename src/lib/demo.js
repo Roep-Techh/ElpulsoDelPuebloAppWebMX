@@ -16,6 +16,7 @@ const K = {
   reportes: 'elpulso.reportes',
   donaciones: 'elpulso.donaciones',
   feedback: 'elpulso.feedback',
+  comunidades: 'elpulso.comunidades',
   seed: 'elpulso.seed'
 }
 
@@ -43,17 +44,24 @@ function sembrar() {
   // La demo SOLO existe en desarrollo. En produccion (build) jamas se siembran
   // perfiles de prueba: si falta la base de datos, la app lo avisa y se detiene.
   if (import.meta.env.PROD) return
-  if (localStorage.getItem(K.seed) === '2') return
+  if (localStorage.getItem(K.seed) === '3') return
   const ahora = Date.now()
   const min = (n) => new Date(ahora - n * 60000).toISOString()
 
+  // Pueblo inicial de la app. En produccion esto lo da la tabla comunidades;
+  // Roep Tech agrega mas pueblos desde su panel.
+  const comunidades = [
+    { id: 'c-san-simon', nombre: 'San Simón Atzitzintla', activa: true, creado_en: min(60 * 24 * 365) }
+  ]
+  const COM = 'c-san-simon'
+
   const usuarios = [
-    { id: 'u-roep', nombre: 'Roep Tech', email: 'roep@pueblo.mx', password: 'demo1234', rol: 'admin', zona: 'Centro' },
-    { id: 'u-admin', nombre: 'Presidencia Municipal', email: 'admin@pueblo.mx', password: 'demo1234', rol: 'moderador', zona: 'Centro' },
-    { id: 'u-comisiones', nombre: 'Comisiones', email: 'comisiones@pueblo.mx', password: 'demo1234', rol: 'moderador', zona: 'Centro' },
-    { id: 'u-iglesia', nombre: 'Iglesia del Sagrado Corazón', email: 'iglesia@pueblo.mx', password: 'demo1234', rol: 'moderador', zona: 'Centro' },
-    { id: 'u-negocio', nombre: 'Doña Lupita', email: 'negocio@pueblo.mx', password: 'demo1234', rol: 'vecino', zona: 'Centro' },
-    { id: 'u-vecino', nombre: 'Carlos Hernández', email: 'vecino@pueblo.mx', password: 'demo1234', rol: 'vecino', zona: 'San Miguel' }
+    { id: 'u-roep', nombre: 'Roep Tech', email: 'roep@pueblo.mx', password: 'demo1234', rol: 'admin', zona: 'Centro', comunidad_id: COM },
+    { id: 'u-admin', nombre: 'Presidencia Municipal', email: 'admin@pueblo.mx', password: 'demo1234', rol: 'moderador', zona: 'Centro', comunidad_id: COM },
+    { id: 'u-comisiones', nombre: 'Comisiones', email: 'comisiones@pueblo.mx', password: 'demo1234', rol: 'moderador', zona: 'Centro', comunidad_id: COM },
+    { id: 'u-iglesia', nombre: 'Iglesia del Sagrado Corazón', email: 'iglesia@pueblo.mx', password: 'demo1234', rol: 'moderador', zona: 'Centro', comunidad_id: COM },
+    { id: 'u-negocio', nombre: 'Doña Lupita', email: 'negocio@pueblo.mx', password: 'demo1234', rol: 'vecino', zona: 'Centro', comunidad_id: COM },
+    { id: 'u-vecino', nombre: 'Carlos Hernández', email: 'vecino@pueblo.mx', password: 'demo1234', rol: 'vecino', zona: 'San Miguel', comunidad_id: COM }
   ]
 
   const negocios = [
@@ -172,6 +180,11 @@ function sembrar() {
     }
   ]
 
+  // todo el contenido de la demo pertenece al pueblo inicial
+  negocios.forEach((n) => { n.comunidad_id = COM })
+  posts.forEach((p) => { p.comunidad_id = COM })
+
+  escribir(K.comunidades, comunidades)
   escribir(K.usuarios, usuarios)
   escribir(K.negocios, negocios)
   escribir(K.posts, posts)
@@ -192,7 +205,7 @@ function sembrar() {
     }
   ])
   escribir(K.donaciones, [{ id: 'd-1', nombre: 'Anónimo', monto: 200, tipo: 'donacion', mensaje: '¡Ánimo con el pueblo!', estado: 'confirmado', creado_en: min(2000) }])
-  localStorage.setItem(K.seed, '2')
+  localStorage.setItem(K.seed, '3')
 }
 
 sembrar()
@@ -200,28 +213,86 @@ sembrar()
 const clone = (o) => JSON.parse(JSON.stringify(o))
 const ordenar = (arr) => [...arr].sort((a, b) => new Date(b.creado_en) - new Date(a.creado_en))
 
+/* ---------------- Comunidades (pueblos) ---------------- */
+export const comunidades = {
+  /** cualquiera puede ver la lista (es pública) */
+  async listar() {
+    return clone(leer(K.comunidades, []))
+  },
+  /** agrega un pueblo: solo Roep Tech */
+  async crear(nombre) {
+    if (!soyAdmin()) return { error: 'Solo Roep Tech puede agregar pueblos.' }
+    nombre = String(nombre || '').trim()
+    if (nombre.length < 3) return { error: 'Escribe el nombre del pueblo (mínimo 3 letras).' }
+    if (nombre.length > 60) return { error: 'Ese nombre es muy largo.' }
+    const arr = leer(K.comunidades, [])
+    if (arr.some((c) => c.nombre.toLowerCase() === nombre.toLowerCase()))
+      return { error: 'Ese pueblo ya está en la lista.' }
+    const c = { id: uid(), nombre, activa: true, creado_en: new Date().toISOString() }
+    arr.push(c)
+    escribir(K.comunidades, arr)
+    return { data: clone(c) }
+  },
+  /** activa o desactiva un pueblo: solo Roep Tech */
+  async alternar(id, activa) {
+    if (!soyAdmin()) return { error: 'Solo Roep Tech cambia pueblos.' }
+    const arr = leer(K.comunidades, [])
+    const i = arr.findIndex((c) => c.id === id)
+    if (i < 0) return { error: 'No encontré ese pueblo.' }
+    arr[i].activa = Boolean(activa)
+    escribir(K.comunidades, arr)
+    return { ok: true, data: clone(arr[i]) }
+  },
+  /** primer pueblo activo: el que se marca por defecto al registrarse */
+  async primera() {
+    const act = leer(K.comunidades, []).filter((c) => c.activa)
+    return act.length ? clone(act[0]) : null
+  },
+  /** nombre legible de un pueblo por su id */
+  async nombre(id) {
+    if (!id) return ''
+    const c = leer(K.comunidades, []).find((x) => x.id === id)
+    return c ? c.nombre : ''
+  }
+}
+
 /* ---------------- Auth ---------------- */
 export const auth = {
   async getSession() {
-    return leer(K.sesion, null)
+    const s = leer(K.sesion, null)
+    if (!s) return null
+    return { ...s, comunidad: await comunidades.nombre(s.comunidad_id) }
   },
   async signIn({ email, password }) {
     const usuarios = leer(K.usuarios, [])
     const u = usuarios.find((x) => x.email.toLowerCase() === String(email).toLowerCase())
     if (!u) return { error: 'No existe una cuenta con ese correo.' }
     if (u.password !== password) return { error: 'Contraseña incorrecta.' }
-    const sesion = { id: u.id, nombre: u.nombre, email: u.email, rol: u.rol, zona: u.zona || '' }
+    const sesion = {
+      id: u.id, nombre: u.nombre, email: u.email, rol: u.rol, zona: u.zona || '',
+      comunidad_id: u.comunidad_id || null, comunidad: await comunidades.nombre(u.comunidad_id)
+    }
     escribir(K.sesion, sesion)
     return { data: sesion }
   },
-  async signUp({ nombre, email, password }) {
+  async signUp({ nombre, email, password, comunidad_id }) {
     const usuarios = leer(K.usuarios, [])
     if (usuarios.some((x) => x.email.toLowerCase() === String(email).toLowerCase()))
       return { error: 'Ese correo ya está registrado.' }
-    const u = { id: uid(), nombre: nombre || 'Vecino', email, password, rol: 'vecino', zona: '' }
+    // hay que decir de dónde es: si no llega pueblo, se toma el primero activo
+    const act = leer(K.comunidades, []).filter((c) => c.activa)
+    const elegida = act.find((c) => c.id === comunidad_id) || act[0]
+    if (!elegida) return { error: 'Aún no hay ningún pueblo activo. Contacta a Roep Tech.' }
+    const u = {
+      id: uid(), nombre: nombre || 'Vecino', email, password, rol: 'vecino', zona: '',
+      comunidad_id: elegida.id
+    }
     usuarios.push(u)
     escribir(K.usuarios, usuarios)
-    const sesion = { id: u.id, nombre: u.nombre, email: u.email, rol: u.rol, zona: '' }
+    const sesion = {
+      id: u.id, nombre: u.nombre, email: u.email, rol: u.rol, zona: '',
+      comunidad_id: elegida.id, comunidad: elegida.nombre
+    }
     escribir(K.sesion, sesion)
     return { data: sesion }
   },
@@ -235,6 +306,8 @@ export const auth = {
     const sesion = leer(K.sesion, null)
     if (!sesion) return { error: 'Inicia sesión primero.' }
     const nueva = { ...sesion, ...patch }
+    // si cambió el pueblo, refrescamos el nombre visible
+    if ('comunidad_id' in patch) nueva.comunidad = await comunidades.nombre(patch.comunidad_id)
     escribir(K.sesion, nueva)
     const usuarios = leer(K.usuarios, [])
     const i = usuarios.findIndex((u) => u.id === sesion.id)
@@ -300,7 +373,7 @@ export const invitado = {
 /* ---------------- Publicaciones ---------------- */
 export const posts = {
   async list(filtros = {}) {
-    const { tipo, prioridad, q, businessId, authorId, soloActivos = true, incluirVencidos = false, limit = 100 } = filtros
+    const { tipo, prioridad, q, businessId, authorId, soloActivos = true, incluirVencidos = false, comunidadId, limit = 100 } = filtros
     let arr = leer(K.posts, [])
     if (soloActivos) {
       const dev = dispositivoId()
@@ -317,6 +390,7 @@ export const posts = {
     if (prioridad) arr = arr.filter((p) => p.prioridad === prioridad)
     if (businessId) arr = arr.filter((p) => p.business_id === businessId)
     if (authorId) arr = arr.filter((p) => p.author_id === authorId)
+    if (comunidadId) arr = arr.filter((p) => p.comunidad_id === comunidadId)
     if (q) {
       const t = q.toLowerCase()
       arr = arr.filter((p) =>
@@ -325,14 +399,17 @@ export const posts = {
           .some((s) => String(s).toLowerCase().includes(t))
       )
     }
-    return clone(ordenar(arr).slice(0, limit))
+    const nombres = {}
+    leer(K.comunidades, []).forEach((c) => { nombres[c.id] = c.nombre })
+    return clone(ordenar(arr).slice(0, limit)).map((p) => ({ ...p, comunidad: nombres[p.comunidad_id] || null }))
   },
   async get(id) {
     const p = leer(K.posts, []).find((x) => x.id === id)
     if (!p) return null
     // el invitado solo puede ver su propio pendiente
     if (p.estado === 'pendiente' && p.dispositivo !== dispositivoId()) return null
-    return clone(p)
+    const c = leer(K.comunidades, []).find((x) => x.id === p.comunidad_id)
+    return clone({ ...p, comunidad: c ? c.nombre : null })
   },
   async create(payload) {
     const sesion = leer(K.sesion, null)
@@ -396,6 +473,10 @@ export const posts = {
     const creadoEn = new Date().toISOString()
     if (tipo === 'aviso') expiraEn = fechaExpiracion(creadoEn, vigenciaDias)
 
+    /* --- comunidad (pueblo): hereda la del autor; el invitado elige --- */
+    const act = leer(K.comunidades, []).filter((c) => c.activa)
+    const elegida = act.find((c) => c.id === (sesion ? sesion.comunidad_id : payload.comunidad_id)) || act[0]
+
     const nuevo = {
       id: uid(),
       author_id: sesion ? sesion.id : null,
@@ -405,6 +486,7 @@ export const posts = {
       dispositivo: esInvitado ? dispositivoId() : null,
       business_id: mio ? mio.id : null,
       business_name: mio ? mio.nombre : null,
+      comunidad_id: elegida ? elegida.id : null,
       tipo,
       prioridad: (sesion && payload.prioridad) || 'comunidad',
       titulo: String(payload.titulo || '').trim(),
@@ -489,19 +571,24 @@ export const posts = {
 
 /* ---------------- Negocios ---------------- */
 export const businesses = {
-  async list({ q, soloPatrocinados, ownerId } = {}) {
+  async list({ q, soloPatrocinados, ownerId, comunidadId } = {}) {
     let arr = leer(K.negocios, [])
     if (soloPatrocinados) arr = arr.filter((n) => n.es_patrocinado)
     if (ownerId) arr = arr.filter((n) => n.owner_id === ownerId)
+    if (comunidadId) arr = arr.filter((n) => n.comunidad_id === comunidadId)
     if (q) {
       const t = q.toLowerCase()
       arr = arr.filter((n) => [n.nombre, n.rubro, n.descripcion, n.direccion].some((s) => String(s || '').toLowerCase().includes(t)))
     }
-    return clone(arr)
+    const nombres = {}
+    leer(K.comunidades, []).forEach((c) => { nombres[c.id] = c.nombre })
+    return clone(arr).map((n) => ({ ...n, comunidad: nombres[n.comunidad_id] || null }))
   },
   async get(id) {
     const n = leer(K.negocios, []).find((x) => x.id === id)
-    return n ? clone(n) : null
+    if (!n) return null
+    const c = leer(K.comunidades, []).find((x) => x.id === n.comunidad_id)
+    return clone({ ...n, comunidad: c ? c.nombre : null })
   },
   async create(payload) {
     const sesion = leer(K.sesion, null)
@@ -509,9 +596,12 @@ export const businesses = {
     const existentes = leer(K.negocios, [])
     if (existentes.some((n) => n.owner_id === sesion.id && n.nombre === payload.nombre))
       return { error: 'Ya registraste ese negocio.' }
+    const act = leer(K.comunidades, []).filter((c) => c.activa)
     const nuevo = {
       id: uid(),
       owner_id: sesion.id,
+      // el negocio es del pueblo de su dueño
+      comunidad_id: (act.find((c) => c.id === sesion.comunidad_id) || act[0] || {}).id || null,
       nombre: payload.nombre,
       rubro: payload.rubro || 'Otros',
       descripcion: payload.descripcion || '',
@@ -601,15 +691,19 @@ export const cuentas = {
   async listar() {
     if (!soyAdmin()) return []
     // jamas sale la contraseña, ni siquiera enmascarada
+    const nombres = {}
+    leer(K.comunidades, []).forEach((c) => { nombres[c.id] = c.nombre })
     return clone(leer(K.usuarios, [])).map((u) => ({
       id: u.id,
       nombre: u.nombre,
       email: u.email,
       rol: u.rol,
-      zona: u.zona || ''
+      zona: u.zona || '',
+      comunidad_id: u.comunidad_id || null,
+      comunidad: nombres[u.comunidad_id] || ''
     }))
   },
-  async crear({ email, nombre, password, rol = 'vecino' }) {
+  async crear({ email, nombre, password, rol = 'vecino', comunidad_id }) {
     if (!soyAdmin()) return { error: 'Solo Roep Tech puede crear cuentas.' }
     email = String(email || '').trim().toLowerCase()
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return { error: 'Ese correo no es válido.' }
@@ -618,17 +712,37 @@ export const cuentas = {
     const usuarios = leer(K.usuarios, [])
     if (usuarios.some((u) => u.email.toLowerCase() === email))
       return { error: 'Ese correo ya tiene cuenta. Si olvidó la contraseña, cámbiala desde aquí.' }
+    // el pueblo de la cuenta (si no se indica, el primero activo)
+    const act = leer(K.comunidades, []).filter((c) => c.activa)
+    const elegida = act.find((c) => c.id === comunidad_id) || act[0]
+    if (!elegida) return { error: 'Aún no hay ningún pueblo activo. Agrégalo desde el panel.' }
     const u = {
       id: uid(),
       nombre: String(nombre || '').trim() || 'Vecino',
       email,
       password: String(password),
       rol,
-      zona: ''
+      zona: '',
+      comunidad_id: elegida.id
     }
     usuarios.push(u)
     escribir(K.usuarios, usuarios)
-    return { data: { id: u.id, nombre: u.nombre, email: u.email, rol } }
+    return { data: { id: u.id, nombre: u.nombre, email: u.email, rol, comunidad: elegida.nombre } }
+  },
+  /** mueve una cuenta a otro pueblo: solo Roep Tech */
+  async cambiarComunidad(id, comunidad_id) {
+    if (!soyAdmin()) return { error: 'Solo Roep Tech cambia el pueblo de una cuenta.' }
+    const act = leer(K.comunidades, []).filter((c) => c.activa)
+    const elegida = act.find((c) => c.id === comunidad_id)
+    if (!elegida) return { error: 'No encontré ese pueblo.' }
+    const usuarios = leer(K.usuarios, [])
+    const u = usuarios.find((x) => x.id === id)
+    if (!u) return { error: 'No encontré esa cuenta.' }
+    u.comunidad_id = elegida.id
+    escribir(K.usuarios, usuarios)
+    const s = leer(K.sesion, null)
+    if (s && s.id === id) escribir(K.sesion, { ...s, comunidad_id: elegida.id, comunidad: elegida.nombre })
+    return { ok: true, data: { id, comunidad_id: elegida.id, comunidad: elegida.nombre } }
   },
   async cambiarRol(id, rol) {
     if (!soyAdmin()) return { error: 'Solo Roep Tech cambia roles.' }

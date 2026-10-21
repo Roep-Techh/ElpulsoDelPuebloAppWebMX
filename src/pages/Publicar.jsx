@@ -33,7 +33,9 @@ export default function Publicar() {
     business_id: '',
     motivo: MOTIVOS[0],
     motivo_otro: '',
-    vigencia_dias: VIGENCIA_DEFECTO
+    vigencia_dias: VIGENCIA_DEFECTO,
+    // modo libre: el invitado dice de dónde es
+    comunidad_id: ''
   })
   const [media, setMedia] = useState([]) // fotos/videos del aviso (ya comprimidos)
 
@@ -263,6 +265,7 @@ function CupoInvitado({ libreOk }) {
 
 /* ---------- Formulario compartido ---------- */
 function Formulario({ tipo, form, set, esLibre, nombreLibre, setNombreLibre, user, negocios, puedeUrgente, enviando, media = [], setMedia }) {
+  const { comunidades } = useApp()
   const conf = TIPOS[tipo]
   const esAviso = tipo === 'aviso'
   const esEvento = tipo === 'evento'
@@ -283,6 +286,23 @@ function Formulario({ tipo, form, set, esLibre, nombreLibre, setNombreLibre, use
             placeholder="Ej. María del Carmen"
           />
           <div className="ayuda">Obligatorio: así te verán en tu publicación. No es una cuenta.</div>
+        </div>
+      )}
+
+      {esLibre && comunidades.length > 0 && (
+        <div className="field">
+          <label>¿De dónde eres? *</label>
+          <select
+            className="select"
+            required
+            value={form.comunidad_id || comunidades[0].id}
+            onChange={set('comunidad_id')}
+          >
+            {comunidades.map((c) => (
+              <option key={c.id} value={c.id}>{c.nombre}</option>
+            ))}
+          </select>
+          <div className="ayuda">Así tu publicación aparece en la comunidad que corresponde.</div>
         </div>
       )}
 
